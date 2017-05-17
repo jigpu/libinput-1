@@ -958,6 +958,20 @@ fallback_process_switch(struct fallback_dispatch *dispatch,
 				     LIBINPUT_SWITCH_RF_DISABLED,
 				     state);
 		break;
+	case SW_TABLET_MODE:
+		if (dispatch->sw.tablet_mode_state == e->value)
+			return;
+
+		dispatch->sw.tablet_mode_state = e->value;
+		if (e->value)
+			state = LIBINPUT_SWITCH_STATE_ON;
+		else
+			state = LIBINPUT_SWITCH_STATE_OFF;
+		switch_notify_toggle(&device->base,
+				     time,
+				     LIBINPUT_SWITCH_TABLET_MODE,
+				     state);
+		break;
 	}
 }
 
@@ -1288,12 +1302,19 @@ fallback_sync_initial_state(struct evdev_device *device,
 			    struct evdev_dispatch *evdev_dispatch)
 {
 	struct fallback_dispatch *dispatch = fallback_dispatch(evdev_dispatch);
+	uint64_t time = libinput_now(evdev_libinput_context(device));
 
 	if (dispatch->sw.rfkill_all_state) {
-		uint64_t time = libinput_now(evdev_libinput_context(device));
 		switch_notify_toggle(&device->base,
 				     time,
 				     LIBINPUT_SWITCH_RF_DISABLED,
+				     LIBINPUT_SWITCH_STATE_ON);
+	}
+
+	if (dispatch->sw.tablet_mode_state) {
+		switch_notify_toggle(&device->base,
+				     time,
+				     LIBINPUT_SWITCH_TABLET_MODE,
 				     LIBINPUT_SWITCH_STATE_ON);
 	}
 }
@@ -1845,13 +1866,23 @@ static inline void
 fallback_dispatch_init_switch(struct fallback_dispatch *dispatch,
 			      struct evdev_device *device)
 {
-	if (!libevdev_has_event_code(device->evdev, EV_SW, SW_RFKILL_ALL))
-		return;
+	int val;
 
-	dispatch->sw.rfkill_all_state = libevdev_get_event_value(device->evdev,
-								 EV_SW,
-								 SW_RFKILL_ALL);
-	device->seat_caps |= EVDEV_DEVICE_SWITCH;
+	if (libevdev_has_event_code(device->evdev, EV_SW, SW_RFKILL_ALL)) {
+		val = libevdev_get_event_value(device->evdev,
+					       EV_SW,
+					       SW_RFKILL_ALL);
+		dispatch->sw.rfkill_all_state = val;
+		device->seat_caps |= EVDEV_DEVICE_SWITCH;
+	}
+
+	if (libevdev_has_event_code(device->evdev, EV_SW, SW_TABLET_MODE)) {
+		val = libevdev_get_event_value(device->evdev,
+					       EV_SW,
+					       SW_TABLET_MODE);
+		dispatch->sw.tablet_mode_state = val;
+		device->seat_caps |= EVDEV_DEVICE_SWITCH;
+	}
 }
 
 static struct evdev_dispatch *
@@ -3213,6 +3244,9 @@ evdev_device_has_switch(struct evdev_device *device,
 		break;
 	case LIBINPUT_SWITCH_RF_DISABLED:
 		code = SW_RFKILL_ALL;
+		break;
+	case LIBINPUT_SWITCH_TABLET_MODE:
+		code = SW_TABLET_MODE;
 		break;
 	default:
 		return -1;

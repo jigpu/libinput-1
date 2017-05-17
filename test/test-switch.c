@@ -36,13 +36,6 @@ switch_has_lid(struct litest_device *dev)
 						 LIBINPUT_SWITCH_LID);
 }
 
-static inline bool
-switch_has_rfkill(struct litest_device *dev)
-{
-	return libinput_device_switch_has_switch(dev->libinput_device,
-						 LIBINPUT_SWITCH_RF_DISABLED);
-}
-
 START_TEST(switch_has_lid_switch)
 {
 	struct litest_device *dev = litest_current_device();
@@ -79,35 +72,47 @@ START_TEST(switch_has_rfkill_switch)
 }
 END_TEST
 
+START_TEST(switch_has_tablet_mode_switch)
+{
+	struct litest_device *dev = litest_current_device();
+
+	if (!libevdev_has_event_code(dev->evdev, EV_SW, SW_TABLET_MODE))
+		return;
+
+	ck_assert_int_eq(libinput_device_switch_has_switch(dev->libinput_device,
+							   LIBINPUT_SWITCH_TABLET_MODE),
+			 1);
+}
+END_TEST
+
 START_TEST(switch_toggle)
 {
 	struct litest_device *dev = litest_current_device();
 	struct libinput *li = dev->libinput;
 	struct libinput_event *event;
-	enum libinput_switch sw;
-
-	if (switch_has_lid(dev))
-		sw = LIBINPUT_SWITCH_LID;
-	else if (switch_has_rfkill(dev))
-		sw = LIBINPUT_SWITCH_RF_DISABLED;
-	else
-		litest_abort_msg("Missing switch for test");
+	enum libinput_switch sw = _i; /* ranged test */
 
 	litest_drain_events(li);
 
 	litest_switch_action(dev, sw, LIBINPUT_SWITCH_STATE_ON);
 	libinput_dispatch(li);
 
-	event = libinput_get_event(li);
-	litest_is_switch_event(event, sw, LIBINPUT_SWITCH_STATE_ON);
-	libinput_event_destroy(event);
+	if (libinput_device_switch_has_switch(dev->libinput_device, sw)) {
+		event = libinput_get_event(li);
+		litest_is_switch_event(event, sw, LIBINPUT_SWITCH_STATE_ON);
+		libinput_event_destroy(event);
+	} else {
+		litest_assert_empty_queue(li);
+	}
 
 	litest_switch_action(dev, sw, LIBINPUT_SWITCH_STATE_OFF);
 	libinput_dispatch(li);
 
-	event = libinput_get_event(li);
-	litest_is_switch_event(event, sw, LIBINPUT_SWITCH_STATE_OFF);
-	libinput_event_destroy(event);
+	if (libinput_device_switch_has_switch(dev->libinput_device, sw)) {
+		event = libinput_get_event(li);
+		litest_is_switch_event(event, sw, LIBINPUT_SWITCH_STATE_OFF);
+		libinput_event_destroy(event);
+	}
 
 	litest_assert_empty_queue(li);
 }
@@ -118,14 +123,10 @@ START_TEST(switch_toggle_double)
 	struct litest_device *dev = litest_current_device();
 	struct libinput *li = dev->libinput;
 	struct libinput_event *event;
-	enum libinput_switch sw;
+	enum libinput_switch sw = _i; /* ranged test */
 
-	if (switch_has_lid(dev))
-		sw = LIBINPUT_SWITCH_LID;
-	else if (switch_has_rfkill(dev))
-		sw = LIBINPUT_SWITCH_RF_DISABLED;
-	else
-		litest_abort_msg("Missing switch for test");
+	if (!libinput_device_switch_has_switch(dev->libinput_device, sw))
+		return;
 
 	litest_drain_events(li);
 
@@ -167,17 +168,13 @@ START_TEST(switch_down_on_init)
 	struct litest_device *dev = litest_current_device();
 	struct libinput *li;
 	struct libinput_event *event;
-	enum libinput_switch sw = LIBINPUT_SWITCH_LID;
+	enum libinput_switch sw = _i; /* ranged test */
 
-	if (switch_has_lid(dev)) {
-		sw = LIBINPUT_SWITCH_LID;
-		if (!lid_switch_is_reliable(dev))
-			return;
-	} else if (switch_has_rfkill(dev)) {
-		sw = LIBINPUT_SWITCH_RF_DISABLED;
-	} else {
-		litest_abort_msg("Missing switch for test");
-	}
+	if (!libinput_device_switch_has_switch(dev->libinput_device, sw))
+		return;
+
+	if (sw == LIBINPUT_SWITCH_LID && !lid_switch_is_reliable(dev))
+		return;
 
 	litest_switch_action(dev, sw, LIBINPUT_SWITCH_STATE_ON);
 
@@ -217,15 +214,11 @@ START_TEST(switch_not_down_on_init)
 	struct libinput_event *event;
 	enum libinput_switch sw = LIBINPUT_SWITCH_LID;
 
-	if (switch_has_lid(dev)) {
-		sw = LIBINPUT_SWITCH_LID;
-		if (lid_switch_is_reliable(dev))
-			return;
-	} else if (switch_has_rfkill(dev)) {
+	if (!libinput_device_switch_has_switch(dev->libinput_device, sw))
 		return;
-	} else {
-		litest_abort_msg("Missing switch for test");
-	}
+
+	if (sw == LIBINPUT_SWITCH_LID && lid_switch_is_reliable(dev))
+		return;
 
 	litest_switch_action(dev, sw, LIBINPUT_SWITCH_STATE_ON);
 
@@ -627,12 +620,16 @@ END_TEST
 void
 litest_setup_tests_lid(void)
 {
+	struct range switches = { LIBINPUT_SWITCH_LID,
+				  LIBINPUT_SWITCH_TABLET_MODE + 1};
+
 	litest_add("switch:has", switch_has_lid_switch, LITEST_SWITCH, LITEST_ANY);
 	litest_add("switch:has", switch_has_rfkill_switch, LITEST_SWITCH, LITEST_ANY);
+	litest_add("switch:has", switch_has_tablet_mode_switch, LITEST_SWITCH, LITEST_ANY);
 	litest_add("switch:has", switch_has_cap, LITEST_SWITCH, LITEST_ANY);
-	litest_add("switch:toggle", switch_toggle, LITEST_SWITCH, LITEST_ANY);
-	litest_add("switch:toggle", switch_toggle_double, LITEST_SWITCH, LITEST_ANY);
-	litest_add("switch:toggle", switch_down_on_init, LITEST_SWITCH, LITEST_ANY);
+	litest_add_ranged("switch:toggle", switch_toggle, LITEST_SWITCH, LITEST_ANY, &switches);
+	litest_add_ranged("switch:toggle", switch_toggle_double, LITEST_SWITCH, LITEST_ANY, &switches);
+	litest_add_ranged("switch:toggle", switch_down_on_init, LITEST_SWITCH, LITEST_ANY, &switches);
 	litest_add("switch:toggle", switch_not_down_on_init, LITEST_SWITCH, LITEST_ANY);
 	litest_add("lid:disable_touchpad", lid_disable_touchpad, LITEST_SWITCH, LITEST_ANY);
 	litest_add("lid:disable_touchpad", lid_disable_touchpad_during_touch, LITEST_SWITCH, LITEST_ANY);

@@ -71,6 +71,7 @@ static int events[] = {
 	EV_KEY, KEY_BRIGHTNESS_MIN,
 
 	EV_SW, SW_RFKILL_ALL,
+	EV_SW, SW_TABLET_MODE,
 
 	-1, -1,
 };

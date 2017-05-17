@@ -359,6 +359,7 @@ struct fallback_dispatch {
 
 	struct {
 		int rfkill_all_state;
+		int tablet_mode_state;
 	} sw;
 
 	/* Bitmask of pressed keys used to ignore initial release events from

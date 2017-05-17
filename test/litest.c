@@ -2178,6 +2178,9 @@ litest_switch_action(struct litest_device *dev,
 	case LIBINPUT_SWITCH_RF_DISABLED:
 		code = SW_RFKILL_ALL;
 		break;
+	case LIBINPUT_SWITCH_TABLET_MODE:
+		code = SW_TABLET_MODE;
+		break;
 	default:
 		litest_abort_msg("Invalid switch %d", sw);
 		break;
