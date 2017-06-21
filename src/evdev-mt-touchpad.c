@@ -36,14 +36,14 @@
 #define THUMB_MOVE_TIMEOUT ms2us(300)
 #define FAKE_FINGER_OVERFLOW (1 << 7)
 
-static inline struct device_coords *
+static inline struct tp_history_point*
 tp_motion_history_offset(struct tp_touch *t, int offset)
 {
 	int offset_index =
 		(t->history.index - offset + TOUCHPAD_HISTORY_LENGTH) %
 		TOUCHPAD_HISTORY_LENGTH;
 
-	return &t->history.samples[offset_index].point;
+	return &t->history.samples[offset_index];
 }
 
 struct normalized_coords
@@ -294,10 +294,10 @@ tp_get_delta(struct tp_touch *t)
 	if (t->history.count <= 1)
 		return zero;
 
-	delta.x = tp_motion_history_offset(t, 0)->x -
-		  tp_motion_history_offset(t, 1)->x;
-	delta.y = tp_motion_history_offset(t, 0)->y -
-		  tp_motion_history_offset(t, 1)->y;
+	delta.x = tp_motion_history_offset(t, 0)->point.x -
+		  tp_motion_history_offset(t, 1)->point.x;
+	delta.y = tp_motion_history_offset(t, 0)->point.y -
+		  tp_motion_history_offset(t, 1)->point.y;
 
 	return tp_normalize_delta(t->tp, delta);
 }
@@ -339,11 +339,13 @@ tp_process_absolute(struct tp_dispatch *tp,
 		break;
 	case ABS_MT_PRESSURE:
 		t->pressure = e->value;
+		t->time = time;
 		t->dirty = true;
 		tp->queued |= TOUCHPAD_EVENT_OTHERAXIS;
 		break;
 	case ABS_MT_TOOL_TYPE:
 		t->is_tool_palm = e->value == MT_TOOL_PALM;
+		t->time = time;
 		t->dirty = true;
 		tp->queued |= TOUCHPAD_EVENT_OTHERAXIS;
 		break;
@@ -378,6 +380,7 @@ tp_process_absolute_st(struct tp_dispatch *tp,
 		break;
 	case ABS_PRESSURE:
 		t->pressure = e->value;
+		t->time = time;
 		t->dirty = true;
 		tp->queued |= TOUCHPAD_EVENT_OTHERAXIS;
 		break;

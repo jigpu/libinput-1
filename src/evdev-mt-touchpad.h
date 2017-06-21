@@ -161,7 +161,7 @@ struct tp_touch {
 	} quirks;
 
 	struct {
-		struct {
+		struct tp_history_point {
 			uint64_t time;
 			struct device_coords point;
 		} samples[TOUCHPAD_HISTORY_LENGTH];
