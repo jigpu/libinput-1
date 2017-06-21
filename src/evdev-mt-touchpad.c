@@ -43,7 +43,7 @@ tp_motion_history_offset(struct tp_touch *t, int offset)
 		(t->history.index - offset + TOUCHPAD_HISTORY_LENGTH) %
 		TOUCHPAD_HISTORY_LENGTH;
 
-	return &t->history.samples[offset_index];
+	return &t->history.samples[offset_index].point;
 }
 
 struct normalized_coords
@@ -90,7 +90,8 @@ tp_motion_history_push(struct tp_touch *t)
 	if (t->history.count < TOUCHPAD_HISTORY_LENGTH)
 		t->history.count++;
 
-	t->history.samples[motion_index] = t->point;
+	t->history.samples[motion_index].point = t->point;
+	t->history.samples[motion_index].time = t->time;
 	t->history.index = motion_index;
 }
 
