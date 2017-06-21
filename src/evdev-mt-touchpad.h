@@ -146,6 +146,7 @@ struct tp_touch {
 	struct device_coords point;
 	uint64_t time;
 	int pressure;
+	double last_speed; /* speed in mm/s at last sample */
 	bool is_tool_palm; /* MT_TOOL_PALM */
 
 	bool was_down; /* if distance == 0, false for pure hovering

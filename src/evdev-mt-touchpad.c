@@ -35,6 +35,7 @@
 #define DEFAULT_KEYBOARD_ACTIVITY_TIMEOUT_2 ms2us(500)
 #define THUMB_MOVE_TIMEOUT ms2us(300)
 #define FAKE_FINGER_OVERFLOW (1 << 7)
+#define THUMB_IGNORE_SPEED_THRESHOLD 20 /* mm/s */
 
 static inline struct tp_history_point*
 tp_motion_history_offset(struct tp_touch *t, int offset)
@@ -80,6 +81,41 @@ tp_filter_motion_unaccelerated(struct tp_dispatch *tp,
 
 	return filter_dispatch_constant(tp->device->pointer.filter,
 					&raw, tp, time);
+}
+
+static inline void
+tp_calculate_motion_speed(struct tp_dispatch *tp, struct tp_touch *t)
+{
+	const struct tp_history_point *last;
+	struct device_coords delta;
+	struct phys_coords mm;
+	double distance;
+	double speed;
+
+	/* This doesn't kick in until we have at least 4 events in the
+	 * motion history. As a side-effect, this automatically handles the
+	 * 2fg scroll where a finger is down and moving fast before the
+	 * other finger comes down for the scroll.
+	 *
+	 * We do *not* reset the speed to 0 here though. The motion history
+	 * is reset whenever a new finger is down, so we'd be resetting the
+	 * speed and failing.
+	 */
+	if (t->history.count < 4)
+		return;
+
+	/* FIXME: we probably need a speed history here so we can average
+	 * across a few events */
+	last = tp_motion_history_offset(t, 1);
+	delta.x = abs(t->point.x - last->point.x);
+	delta.y = abs(t->point.y - last->point.y);
+	mm = evdev_device_unit_delta_to_mm(tp->device, &delta);
+
+	distance = length_in_mm(mm);
+	speed = distance/(t->time - last->time); /* mm/us */
+	speed *= 1000000; /* mm/s */
+
+	t->last_speed = speed;
 }
 
 static inline void
@@ -219,6 +255,7 @@ tp_new_touch(struct tp_dispatch *tp, struct tp_touch *t, uint64_t time)
 	t->state = TOUCH_HOVERING;
 	t->pinned.is_pinned = false;
 	t->time = time;
+	t->last_speed = 0;
 	tp->queued |= TOUCHPAD_EVENT_MOTION;
 }
 
@@ -1102,7 +1139,8 @@ tp_need_motion_history_reset(struct tp_dispatch *tp)
 static bool
 tp_detect_jumps(const struct tp_dispatch *tp, struct tp_touch *t)
 {
-	struct device_coords *last, delta;
+	const struct tp_history_point *last;
+	struct device_coords delta;
 	struct phys_coords mm;
 	const int JUMP_THRESHOLD_MM = 20;
 
@@ -1118,8 +1156,8 @@ tp_detect_jumps(const struct tp_dispatch *tp, struct tp_touch *t)
 	/* called before tp_motion_history_push, so offset 0 is the most
 	 * recent coordinate */
 	last = tp_motion_history_offset(t, 0);
-	delta.x = abs(t->point.x - last->x);
-	delta.y = abs(t->point.y - last->y);
+	delta.x = abs(t->point.x - last->point.x);
+	delta.y = abs(t->point.y - last->point.y);
 	mm = evdev_device_unit_delta_to_mm(tp->device, &delta);
 
 	return hypot(mm.x, mm.y) > JUMP_THRESHOLD_MM;
@@ -1131,6 +1169,8 @@ tp_process_state(struct tp_dispatch *tp, uint64_t time)
 	struct tp_touch *t;
 	bool restart_filter = false;
 	bool want_motion_reset;
+	bool have_new_touch = false;
+	bool speed_exceeded = false;
 
 	tp_process_fake_touches(tp, time);
 	tp_unhover_touches(tp, time);
@@ -1159,16 +1199,47 @@ tp_process_state(struct tp_dispatch *tp, uint64_t time)
 			tp_motion_history_reset(t);
 		}
 
+		/* FIXME: calculate speed in mm/s, then have a detection
+		 * for this somewhere, needs to be outside of this loop
+		 * though because we can't guarantee order.
+		 *
+		 * Mark it as a thumb, that's the easiest way to slot it in.
+		 * - no, thumb makes it affect clickfinger too
+		 *
+		 * Behaviour on OSX:
+		 * - speed threshold, if pointer is moving past a certain
+		 * speed, second finger is like first finger -> BOTH fingers
+		 * move the pointer
+		 * - timeout, if second finger is down within timeout, we
+		 * still get scroll
+		 */
 		tp_thumb_detect(tp, t, time);
 		tp_palm_detect(tp, t, time);
 
 		tp_motion_hysteresis(tp, t);
 		tp_motion_history_push(t);
 
+		if (t->last_speed > THUMB_IGNORE_SPEED_THRESHOLD)
+			speed_exceeded = true;
+
+		tp_calculate_motion_speed(tp, t);
+
 		tp_unpin_finger(tp, t);
 
-		if (t->state == TOUCH_BEGIN)
+		if (t->state == TOUCH_BEGIN) {
+			have_new_touch = true;
 			restart_filter = true;
+		}
+	}
+
+	if (have_new_touch && speed_exceeded) {
+		tp_for_each_touch(tp, t) {
+			if (t->state == TOUCH_BEGIN) {
+				evdev_log_debug(tp->device,
+						"touch is speed-based thumb\n");
+				t->thumb.state = THUMB_STATE_YES;
+			}
+		}
 	}
 
 	if (restart_filter)
